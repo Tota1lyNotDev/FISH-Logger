@@ -17,7 +17,9 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 guild = discord.Object(id=GUILD_ID)
 
 XP_FILE = 'xp.json'
+MSG_FILE = 'messages.json'
 xp_data = {}
+message_data = {}
 
 if os.path.exists(XP_FILE):
     try:
@@ -30,6 +32,18 @@ if os.path.exists(XP_FILE):
 def save_xp():
     with open(XP_FILE, 'w') as f:
         json.dump(xp_data, f, indent=4)
+
+def save_messages():
+    with open(MSG_FILE, 'w') as f:
+        json.dump(message_data, f, indent=4)
+
+@bot.event
+async def on_message(message: discord.Message):
+    if not message.author.bot:
+        user_id = str(message.author.id)
+        message_data[user_id] = message_data.get(user_id, 0) + 1
+        save_messages()
+    await bot.process_commands(message)
 
 @bot.event
 async def on_ready():
@@ -195,6 +209,25 @@ async def leaderboard(interaction: discord.Interaction):
 
     await interaction.response.send_message(embed=embed, view=view)
 
+@bot.tree.command(name="setxp", description="Set XP for a member", guild=guild)
+@app_commands.checks.has_permissions(administrator=True)
+@app_commands.describe(member="Member to set XP for", amount="Amount of XP to set")
+async def setxp(interaction: discord.Interaction, member: discord.Member, amount: int):
+    user_id = str(member.id)
+    previous_xp = xp_data.get(user_id, 0)
+    xp_data[user_id] = amount
+    save_xp()
+    embed = discord.Embed(
+        title="XP Set",
+        description=f"Updated **{member.display_name}**'s XP from **{previous_xp}** to **{amount}**.",
+        color=discord.Color.green()
+    )
+    embed.add_field(name="New Total XP", value=str(amount))
+    embed.set_thumbnail(url=member.display_avatar.url)
+    embed.set_footer(text=f"Requested by {interaction.user.display_name}", icon_url=interaction.user.display_avatar.url)
+
+    await interaction.response.send_message(embed=embed)
+
 def format_date(dt) -> str:
     return dt.strftime('%B %d, %Y')
 
@@ -204,22 +237,22 @@ async def profile(interaction: discord.Interaction, member: discord.Member):
     member = member or interaction.user
     user_id = str(member.id)
     xp = xp_data.get(user_id, 0)
+    message_count = message_data.get(user_id, 0)
     join_date = format_date(member.joined_at)
 
-    # Calculate rank
     sorted_xp = sorted(xp_data.items(), key=lambda item: item[1], reverse=True)
     rank = next((i + 1 for i, (uid, _) in enumerate(sorted_xp) if uid == user_id), None)
 
-    # Create a profile embed
     embed = discord.Embed(
         title=f"{member.display_name}'s Profile",
         color=discord.Color.blue()
     )
     embed.set_thumbnail(url=member.display_avatar.url)
     embed.add_field(name="✨ XP", value=f"{xp} XP", inline=False)
+    embed.add_field(name="💬 Messages", value=f"{message_count} Messages", inline=False)
     embed.add_field(name="🗓️ Join Date", value=join_date, inline=False)
-    embed.add_field(name="🏅 Rank", value=f"#{rank}", inline=False)
-    embed.set_footer(text=f"Requested by {interaction.user.display_name}\n", icon_url=interaction.user.display_avatar.url)
+    embed.add_field(name="🏅 Rank", value=f"#{rank}" if rank else "Unranked", inline=False)
+    embed.set_footer(text=f"Requested by {interaction.user.display_name}", icon_url=interaction.user.display_avatar.url)
 
     await interaction.response.send_message(embed=embed)
 
